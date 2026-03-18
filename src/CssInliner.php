@@ -8,13 +8,15 @@ use Pelago\Emogrifier\Css\CssDocument;
 use Pelago\Emogrifier\HtmlProcessor\AbstractHtmlProcessor;
 use Pelago\Emogrifier\Utilities\CssConcatenator;
 use Pelago\Emogrifier\Utilities\DeclarationBlockParser;
-use Symfony\Component\CssSelector\CssSelectorConverter;
-use Symfony\Component\CssSelector\Exception\ParseException;
 
 use function Safe\preg_match;
 use function Safe\preg_replace;
+
 use function Safe\preg_replace_callback;
 use function Safe\preg_split;
+
+use Symfony\Component\CssSelector\CssSelectorConverter;
+use Symfony\Component\CssSelector\Exception\ParseException;
 
 /**
  * This class provides functions for converting CSS styles into inline style attributes in your HTML code.

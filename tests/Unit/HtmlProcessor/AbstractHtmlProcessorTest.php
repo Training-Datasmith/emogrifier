@@ -7,10 +7,12 @@ namespace Pelago\Emogrifier\Tests\Unit\HtmlProcessor;
 use Pelago\Emogrifier\HtmlProcessor\AbstractHtmlProcessor;
 use Pelago\Emogrifier\Tests\Unit\HtmlProcessor\Fixtures\TestingHtmlProcessor;
 use PHPUnit\Framework\TestCase;
-use TRegx\PhpUnit\DataProviders\DataProvider;
 
 use function Safe\preg_match_all;
+
 use function Safe\preg_replace;
+
+use TRegx\PhpUnit\DataProviders\DataProvider;
 
 /**
  * @covers \Pelago\Emogrifier\HtmlProcessor\AbstractHtmlProcessor

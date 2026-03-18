@@ -7,16 +7,18 @@ namespace Pelago\Emogrifer\Tests\Unit;
 use Pelago\Emogrifier\Css\CssDocument;
 use Pelago\Emogrifier\CssInliner;
 use Pelago\Emogrifier\HtmlProcessor\AbstractHtmlProcessor;
-use Pelago\Emogrifier\Utilities\DeclarationBlockParser;
 use Pelago\Emogrifier\Tests\Support\Traits\AssertCss;
+use Pelago\Emogrifier\Utilities\DeclarationBlockParser;
 use PHPUnit\Framework\Constraint\Constraint;
 use PHPUnit\Framework\TestCase;
 use Sabberworm\CSS\Parsing\UnexpectedTokenException;
-use Symfony\Component\CssSelector\CssSelectorConverter;
-use Symfony\Component\CssSelector\Exception\SyntaxErrorException;
-use TRegx\PhpUnit\DataProviders\DataProvider;
 
 use function Safe\preg_replace;
+
+use Symfony\Component\CssSelector\CssSelectorConverter;
+use Symfony\Component\CssSelector\Exception\SyntaxErrorException;
+
+use TRegx\PhpUnit\DataProviders\DataProvider;
 
 /**
  * @covers \Pelago\Emogrifier\CssInliner

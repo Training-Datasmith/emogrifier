@@ -36,7 +36,8 @@ trait TestStringConstraint
             'object' => [(object) []],
             'resource' => [fopen('php://temp', 'r')],
             'callable' => [
-                static function (): void {},
+                static function (): void {
+                },
             ],
         ];
     }
