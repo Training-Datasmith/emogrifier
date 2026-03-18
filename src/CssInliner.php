@@ -78,7 +78,7 @@ final class CssInliner extends AbstractHtmlProcessor
     /**
      * @var CssSelectorConverter|null
      */
-    private $cssSelectorConverter = null;
+    private $cssSelectorConverter;
 
     /**
      * the visited nodes with the XPath paths as array keys
@@ -143,7 +143,7 @@ final class CssInliner extends AbstractHtmlProcessor
      *          line: int<0, max>
      *      }>|null
      */
-    private $matchingUninlinableCssRules = null;
+    private $matchingUninlinableCssRules;
 
     /**
      * Emogrifier will throw Exceptions when it encounters an error instead of silently ignoring them.

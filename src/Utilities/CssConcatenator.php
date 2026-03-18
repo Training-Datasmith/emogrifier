@@ -120,7 +120,7 @@ final class CssConcatenator
         $css = \implode('', \array_map([self::class, 'getRuleSetCss'], $ruleSets));
         $atRule = $ruleSetList->getAtRule();
         if ($atRule !== '') {
-            $css = $atRule . '{' . $css . '}';
+            return $atRule . '{' . $css . '}';
         }
 
         return $css;

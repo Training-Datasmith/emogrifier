@@ -47,12 +47,12 @@ abstract class AbstractHtmlProcessor
     /**
      * @var \DOMDocument|null
      */
-    protected $domDocument = null;
+    protected $domDocument;
 
     /**
      * @var \DOMXPath|null
      */
-    private $xPath = null;
+    private $xPath;
 
     /**
      * The constructor.
@@ -415,13 +415,11 @@ abstract class AbstractHtmlProcessor
             // An exception to the implicit end of the `<head>` is any content within a `<template>` element, as well in
             // comments.  As an optimization, this is only checked for if a potential `<head>` end tag is found.
             $htmlWithoutCommentsOrTemplates = $this->removeHtmlTemplateElements($this->removeHtmlComments($html));
-            $hasEndOfHeadElement = $htmlWithoutCommentsOrTemplates === $html
+            return $htmlWithoutCommentsOrTemplates === $html
                 || $this->hasEndOfHeadElement($htmlWithoutCommentsOrTemplates);
-        } else {
-            $hasEndOfHeadElement = false;
         }
 
-        return $hasEndOfHeadElement;
+        return false;
     }
 
     /**
