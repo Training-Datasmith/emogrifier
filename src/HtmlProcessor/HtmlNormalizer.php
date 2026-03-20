@@ -1,8 +1,7 @@
 <?php
 
-declare(strict_types=1);
-
-namespace Pelago\Emogrifier\HtmlProcessor;
+declare (strict_types=1);
+namespace Pelago\Emogrifier\Html_Processor;
 
 /**
  * Normalizes HTML:
@@ -11,6 +10,6 @@ namespace Pelago\Emogrifier\HtmlProcessor;
  * - add HEAD and BODY elements (if they are missing)
  * - reformat the HTML
  */
-final class HtmlNormalizer extends AbstractHtmlProcessor
+final class Html_Normalizer extends Abstract_Html_Processor
 {
 }

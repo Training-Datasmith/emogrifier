@@ -1,110 +1,88 @@
 <?php
 
-declare(strict_types=1);
-
+declare (strict_types=1);
 namespace Pelago\Emogrifier;
 
-use Pelago\Emogrifier\Css\CssDocument;
-use Pelago\Emogrifier\HtmlProcessor\AbstractHtmlProcessor;
-use Pelago\Emogrifier\Utilities\CssConcatenator;
-use Pelago\Emogrifier\Utilities\DeclarationBlockParser;
-
+use Pelago\Emogrifier\Css\Css_Document;
+use Pelago\Emogrifier\Html_Processor\Abstract_Html_Processor;
+use Pelago\Emogrifier\Utilities\Css_Concatenator;
+use Pelago\Emogrifier\Utilities\Declaration_Block_Parser;
 use function Safe\preg_match;
 use function Safe\preg_replace;
-
 use function Safe\preg_replace_callback;
 use function Safe\preg_split;
-
-use Symfony\Component\CssSelector\CssSelectorConverter;
-use Symfony\Component\CssSelector\Exception\ParseException;
-
+use Symfony\Component\Css_Selector\Css_Selector_Converter;
+use Symfony\Component\Css_Selector\Exception\Parse_Exception;
 /**
  * This class provides functions for converting CSS styles into inline style attributes in your HTML code.
  */
-final class CssInliner extends AbstractHtmlProcessor
+final class Css_Inliner extends Abstract_Html_Processor
 {
     private const CACHE_KEY_SELECTOR = 0;
     private const CACHE_KEY_COMBINED_STYLES = 1;
-
     /**
      * Regular expression component matching a static pseudo class in a selector, without the preceding ":",
      * for which the applicable elements can be determined (by converting the selector to an XPath expression).
      * (Contains alternation without a group and is intended to be placed within a capturing, non-capturing or lookahead
      * group, as appropriate for the usage context.)
      */
-    private const PSEUDO_CLASS_MATCHER
-        = 'empty|(?:first|last|nth(?:-last)?+|only)-(?:child|of-type)|not\\([[:ascii:]]*\\)|root';
-
+    private const PSEUDO_CLASS_MATCHER = 'empty|(?:first|last|nth(?:-last)?+|only)-(?:child|of-type)|not\([[:ascii:]]*\)|root';
     /**
      * This regular expression component matches an `...of-type` pseudo class name, without the preceding ":".  These
      * pseudo-classes can currently online be inlined if they have an associated type in the selector expression.
      */
     private const OF_TYPE_PSEUDO_CLASS_MATCHER = '(?:first|last|nth(?:-last)?+|only)-of-type';
-
     /**
      * regular expression component to match a selector combinator
      */
-    private const COMBINATOR_MATCHER = '(?:\\s++|\\s*+[>+~]\\s*+)(?=[[:alpha:]_\\-.#*:\\[])';
-
+    private const COMBINATOR_MATCHER = '(?:\s++|\s*+[>+~]\s*+)(?=[[:alpha:]_\-.#*:\[])';
     /**
      * options array key for `querySelectorAll`
      */
     private const QSA_ALWAYS_THROW_PARSE_EXCEPTION = 'alwaysThrowParseException';
-
     /**
      * @var array<non-empty-string, true>
      */
-    private $excludedSelectors = [];
-
+    private $excluded_selectors = [];
     /**
      * @var array<non-empty-string, true>
      */
-    private $excludedCssSelectors = [];
-
+    private $excluded_css_selectors = [];
     /**
      * @var array<non-empty-string, true>
      */
-    private $allowedMediaTypes = ['all' => true, 'screen' => true, 'print' => true];
-
+    private $allowed_media_types = ['all' => true, 'screen' => true, 'print' => true];
     /**
      * @var array{
      *         0: array<non-empty-string, int<0, max>>,
      *         1: array<non-empty-string, string>
      *      }
      */
-    private $caches = [
-        self::CACHE_KEY_SELECTOR => [],
-        self::CACHE_KEY_COMBINED_STYLES => [],
-    ];
-
+    private $caches = [self::CACHE_KEY_SELECTOR => [], self::CACHE_KEY_COMBINED_STYLES => []];
     /**
      * @var CssSelectorConverter|null
      */
-    private $cssSelectorConverter;
-
+    private $css_selector_converter;
     /**
      * the visited nodes with the XPath paths as array keys
      *
      * @var array<non-empty-string, \DOMElement>
      */
-    private $visitedNodes = [];
-
+    private $visited_nodes = [];
     /**
      * the styles to apply to the nodes with the XPath paths as array keys for the outer array
      * and the attribute names/values as key/value pairs for the inner array
      *
      * @var array<non-empty-string, array<string, string>>
      */
-    private $styleAttributesForNodes = [];
-
+    private $style_attributes_for_nodes = [];
     /**
      * Determines whether the "style" attributes of tags in the the HTML passed to this class should be preserved.
      * If set to false, the value of the style attributes will be discarded.
      *
      * @var bool
      */
-    private $isInlineStyleAttributesParsingEnabled = true;
-
+    private $is_inline_style_attributes_parsing_enabled = true;
     /**
      * Determines whether the `<style>` blocks in the HTML passed to this class should be parsed.
      *
@@ -115,8 +93,7 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @var bool
      */
-    private $isStyleBlocksParsingEnabled = true;
-
+    private $is_style_blocks_parsing_enabled = true;
     /**
      * For calculating selector precedence order.
      * Keys are a regular expression part to match before a CSS name.
@@ -124,15 +101,14 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @var array<string, int<1, max>>
      */
-    private $selectorPrecedenceMatchers = [
+    private $selector_precedence_matchers = [
         // IDs: worth 10000
-        '\\#' => 10000,
+        '\#' => 10000,
         // classes, attributes, pseudo-classes (not pseudo-elements) except `:not`: worth 100
-        '(?:\\.|\\[|(?<!:):(?!not\\())' => 100,
+        '(?:\.|\[|(?<!:):(?!not\())' => 100,
         // elements (not attribute values or `:not`), pseudo-elements: worth 1
-        '(?:(?<![="\':\\w\\-])|::)' => 1,
+        '(?:(?<![="\':\w\-])|::)' => 1,
     ];
-
     /**
      * array of data describing CSS rules which apply to the document but cannot be inlined, in the format returned by
      * {@see collateCssRules}
@@ -145,15 +121,13 @@ final class CssInliner extends AbstractHtmlProcessor
      *          line: int<0, max>
      *      }>|null
      */
-    private $matchingUninlinableCssRules;
-
+    private $matching_uninlinable_css_rules;
     /**
      * Emogrifier will throw Exceptions when it encounters an error instead of silently ignoring them.
      *
      * @var bool
      */
     private $debug = false;
-
     /**
      * Inlines the given CSS into the existing HTML.
      *
@@ -168,68 +142,56 @@ final class CssInliner extends AbstractHtmlProcessor
      * @throws \UnexpectedValueException
      *         if a selector query result includes a node which is not a `DOMElement`
      */
-    public function inlineCss(string $css = ''): self
+    public function inline_css(string $css = ''): self
     {
-        $this->clearAllCaches();
-        $this->purgeVisitedNodes();
-
-        $this->normalizeStyleAttributesOfAllNodes();
-
-        $combinedCss = $css;
+        $this->clear_all_caches();
+        $this->purge_visited_nodes();
+        $this->normalize_style_attributes_of_all_nodes();
+        $combined_css = $css;
         // grab any existing style blocks from the HTML and append them to the existing CSS
         // (these blocks should be appended so as to have precedence over conflicting styles in the existing CSS)
-        if ($this->isStyleBlocksParsingEnabled) {
-            $combinedCss .= $this->getCssFromAllStyleNodes();
+        if ($this->is_style_blocks_parsing_enabled) {
+            $combined_css .= $this->get_css_from_all_style_nodes();
         }
-        $parsedCss = new CssDocument($combinedCss, $this->debug);
-
-        $excludedNodes = $this->getNodesToExclude();
-        $cssRules = $this->collateCssRules($parsedCss);
-        foreach ($cssRules['inlinable'] as $cssRule) {
-            foreach ($this->querySelectorAll($cssRule['selector']) as $node) {
-                if (\in_array($node, $excludedNodes, true)) {
+        $parsed_css = new Css_Document($combined_css, $this->debug);
+        $excluded_nodes = $this->get_nodes_to_exclude();
+        $css_rules = $this->collate_css_rules($parsed_css);
+        foreach ($css_rules['inlinable'] as $css_rule) {
+            foreach ($this->query_selector_all($css_rule['selector']) as $node) {
+                if (\in_array($node, $excluded_nodes, true)) {
                     continue;
                 }
-                $this->copyInlinableCssToStyleAttribute($this->ensureNodeIsElement($node), $cssRule);
+                $this->copy_inlinable_css_to_style_attribute($this->ensure_node_is_element($node), $css_rule);
             }
         }
-
-        if ($this->isInlineStyleAttributesParsingEnabled) {
-            $this->fillStyleAttributesWithMergedStyles();
+        if ($this->is_inline_style_attributes_parsing_enabled) {
+            $this->fill_style_attributes_with_merged_styles();
         }
-
-        $this->removeImportantAnnotationFromAllInlineStyles();
-
-        $this->determineMatchingUninlinableCssRules($cssRules['uninlinable']);
-        $this->copyUninlinableCssToStyleNode($parsedCss);
-
+        $this->remove_important_annotation_from_all_inline_styles();
+        $this->determine_matching_uninlinable_css_rules($css_rules['uninlinable']);
+        $this->copy_uninlinable_css_to_style_node($parsed_css);
         return $this;
     }
-
     /**
      * Disables the parsing of inline styles.
      *
      * @return $this
      */
-    public function disableInlineStyleAttributesParsing(): self
+    public function disable_inline_style_attributes_parsing(): self
     {
-        $this->isInlineStyleAttributesParsingEnabled = false;
-
+        $this->is_inline_style_attributes_parsing_enabled = false;
         return $this;
     }
-
     /**
      * Disables the parsing of `<style>` blocks.
      *
      * @return $this
      */
-    public function disableStyleBlocksParsing(): self
+    public function disable_style_blocks_parsing(): self
     {
-        $this->isStyleBlocksParsingEnabled = false;
-
+        $this->is_style_blocks_parsing_enabled = false;
         return $this;
     }
-
     /**
      * Marks a media query type to keep.
      *
@@ -237,13 +199,11 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function addAllowedMediaType(string $mediaName): self
+    public function add_allowed_media_type(string $media_name): self
     {
-        $this->allowedMediaTypes[$mediaName] = true;
-
+        $this->allowed_media_types[$media_name] = true;
         return $this;
     }
-
     /**
      * Drops a media query type from the allowed list.
      *
@@ -251,15 +211,13 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function removeAllowedMediaType(string $mediaName): self
+    public function remove_allowed_media_type(string $media_name): self
     {
-        if (isset($this->allowedMediaTypes[$mediaName])) {
-            unset($this->allowedMediaTypes[$mediaName]);
+        if (isset($this->allowed_media_types[$media_name])) {
+            unset($this->allowed_media_types[$media_name]);
         }
-
         return $this;
     }
-
     /**
      * Adds a selector to exclude nodes from emogrification.
      *
@@ -269,13 +227,11 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function addExcludedSelector(string $selector): self
+    public function add_excluded_selector(string $selector): self
     {
-        $this->excludedSelectors[$selector] = true;
-
+        $this->excluded_selectors[$selector] = true;
         return $this;
     }
-
     /**
      * No longer excludes the nodes matching this selector from emogrification.
      *
@@ -283,15 +239,13 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function removeExcludedSelector(string $selector): self
+    public function remove_excluded_selector(string $selector): self
     {
-        if (isset($this->excludedSelectors[$selector])) {
-            unset($this->excludedSelectors[$selector]);
+        if (isset($this->excluded_selectors[$selector])) {
+            unset($this->excluded_selectors[$selector]);
         }
-
         return $this;
     }
-
     /**
      * Adds a selector to exclude CSS selector from emogrification.
      *
@@ -299,13 +253,11 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function addExcludedCssSelector(string $selector): self
+    public function add_excluded_css_selector(string $selector): self
     {
-        $this->excludedCssSelectors[$selector] = true;
-
+        $this->excluded_css_selectors[$selector] = true;
         return $this;
     }
-
     /**
      * No longer excludes the CSS selector from emogrification.
      *
@@ -313,15 +265,13 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function removeExcludedCssSelector(string $selector): self
+    public function remove_excluded_css_selector(string $selector): self
     {
-        if (isset($this->excludedCssSelectors[$selector])) {
-            unset($this->excludedCssSelectors[$selector]);
+        if (isset($this->excluded_css_selectors[$selector])) {
+            unset($this->excluded_css_selectors[$selector]);
         }
-
         return $this;
     }
-
     /**
      * Sets the debug mode.
      *
@@ -329,13 +279,11 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return $this
      */
-    public function setDebug(bool $debug): self
+    public function set_debug(bool $debug): self
     {
         $this->debug = $debug;
-
         return $this;
     }
-
     /**
      * Gets the array of selectors present in the CSS provided to `inlineCss()` for which the declarations could not be
      * applied as inline styles, but which may affect elements in the HTML.  The relevant CSS will have been placed in a
@@ -346,11 +294,10 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws \BadMethodCallException if `inlineCss` has not been called first
      */
-    public function getMatchingUninlinableSelectors(): array
+    public function get_matching_uninlinable_selectors(): array
     {
-        return \array_column($this->getMatchingUninlinableCssRules(), 'selector');
+        return \array_column($this->get_matching_uninlinable_css_rules(), 'selector');
     }
-
     /**
      * @return array<array-key, array{
      *             media: string,
@@ -362,57 +309,48 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws \BadMethodCallException if `inlineCss` has not been called first
      */
-    private function getMatchingUninlinableCssRules(): array
+    private function get_matching_uninlinable_css_rules(): array
     {
-        if (!\is_array($this->matchingUninlinableCssRules)) {
+        if (!\is_array($this->matching_uninlinable_css_rules)) {
             throw new \BadMethodCallException('inlineCss must be called first', 1568385221);
         }
-
-        return $this->matchingUninlinableCssRules;
+        return $this->matching_uninlinable_css_rules;
     }
-
     /**
      * Clears all caches.
      */
-    private function clearAllCaches(): void
+    private function clear_all_caches(): void
     {
-        $this->caches = [
-            self::CACHE_KEY_SELECTOR => [],
-            self::CACHE_KEY_COMBINED_STYLES => [],
-        ];
-
-        DeclarationBlockParser::clearCache();
+        $this->caches = [self::CACHE_KEY_SELECTOR => [], self::CACHE_KEY_COMBINED_STYLES => []];
+        Declaration_Block_Parser::clear_cache();
     }
-
     /**
      * Purges the visited nodes.
      */
-    private function purgeVisitedNodes(): void
+    private function purge_visited_nodes(): void
     {
-        $this->visitedNodes = [];
-        $this->styleAttributesForNodes = [];
+        $this->visited_nodes = [];
+        $this->style_attributes_for_nodes = [];
     }
-
     /**
      * Parses the document and normalizes all existing CSS attributes.
      * This changes 'DISPLAY: none' to 'display: none'.
      * We wouldn't have to do this if DOMXPath supported XPath 2.0.
      * Also stores a reference of nodes with existing inline styles so we don't overwrite them.
      */
-    private function normalizeStyleAttributesOfAllNodes(): void
+    private function normalize_style_attributes_of_all_nodes(): void
     {
-        foreach ($this->getAllNodesWithStyleAttribute() as $node) {
-            if ($this->isInlineStyleAttributesParsingEnabled) {
-                $this->normalizeStyleAttributes($node);
+        foreach ($this->get_all_nodes_with_style_attribute() as $node) {
+            if ($this->is_inline_style_attributes_parsing_enabled) {
+                $this->normalize_style_attributes($node);
             }
             // Remove style attribute in every case, so we can add them back (if inline style attributes
             // parsing is enabled) to the end of the style list, thus keeping the right priority of CSS rules;
             // else original inline style rules may remain at the beginning of the final inline style definition
             // of a node, which may give not the desired results
-            $node->removeAttribute('style');
+            $node->remove_attribute('style');
         }
     }
-
     /**
      * Returns a list with all DOM nodes that have a style attribute.
      *
@@ -420,81 +358,72 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws \RuntimeException
      */
-    private function getAllNodesWithStyleAttribute(): \DOMNodeList
+    private function get_all_nodes_with_style_attribute(): \Dom_Node_List
     {
         $query = '//*[@style]';
-        $matches = $this->getXPath()->query($query);
-        if (!$matches instanceof \DOMNodeList) {
+        $matches = $this->get_x_path()->query($query);
+        if (!$matches instanceof \Dom_Node_List) {
             throw new \RuntimeException('XPatch query failed: ' . $query, 1618577797);
         }
         /** @var \DOMNodeList<\DOMElement> $matches */
-
         return $matches;
     }
-
     /**
      * Normalizes the value of the "style" attribute and saves it.
      */
-    private function normalizeStyleAttributes(\DOMElement $node): void
+    private function normalize_style_attributes(\Dom_Element $node): void
     {
-        $pattern = '/-{0,2}+[_a-zA-Z][\\w\\-]*+(?=:)/S';
-        $callback = \Closure::fromCallable([self::class, 'normalizePropertyNameCallback']);
-        if (\function_exists('Safe\\preg_replace_callback')) {
-            $normalizedOriginalStyle = preg_replace_callback($pattern, $callback, $node->getAttribute('style'));
+        $pattern = '/-{0,2}+[_a-zA-Z][\w\-]*+(?=:)/S';
+        $callback = \Closure::from_callable([self::class, 'normalizePropertyNameCallback']);
+        if (\function_exists('Safe\preg_replace_callback')) {
+            $normalized_original_style = preg_replace_callback($pattern, $callback, $node->get_attribute('style'));
         } else {
             // @phpstan-ignore-next-line The safe version is only available in "thecodingmachine/safe" for PHP >= 8.1.
-            $normalizedOriginalStyle = \preg_replace_callback($pattern, $callback, $node->getAttribute('style'));
-            \assert(\is_string($normalizedOriginalStyle));
+            $normalized_original_style = \preg_replace_callback($pattern, $callback, $node->get_attribute('style'));
+            \assert(\is_string($normalized_original_style));
         }
-
         // In order to not overwrite existing style attributes in the HTML, we have to save the original HTML styles.
-        $nodePath = $node->getNodePath();
-        if (\is_string($nodePath) && ($nodePath !== '') && !isset($this->styleAttributesForNodes[$nodePath])) {
-            $this->styleAttributesForNodes[$nodePath] = DeclarationBlockParser::parse($normalizedOriginalStyle);
-            $this->visitedNodes[$nodePath] = $node;
+        $node_path = $node->get_node_path();
+        if (\is_string($node_path) && $node_path !== '' && !isset($this->style_attributes_for_nodes[$node_path])) {
+            $this->style_attributes_for_nodes[$node_path] = Declaration_Block_Parser::parse($normalized_original_style);
+            $this->visited_nodes[$node_path] = $node;
         }
-
-        $node->setAttribute('style', $normalizedOriginalStyle);
+        $node->set_attribute('style', $normalized_original_style);
     }
-
     /**
      * @param array<mixed> $matches
      *        A narrower type cannot be specified because it's a callback that may be passed different types in the
      *        array, depending on the flags provided to `preg_replace_callback()` (which are not actually used),
      *        and `Safe\preg_replace_callback()` does not have type annotations to cater for this.
      */
-    private static function normalizePropertyNameCallback(array $matches): string
+    private static function normalize_property_name_callback(array $matches): string
     {
         \assert(\is_string($matches[0] ?? null));
         \assert($matches[0] !== '');
-        return DeclarationBlockParser::normalizePropertyName($matches[0]);
+        return Declaration_Block_Parser::normalize_property_name($matches[0]);
     }
-
     /**
      * Returns CSS content.
      */
-    private function getCssFromAllStyleNodes(): string
+    private function get_css_from_all_style_nodes(): string
     {
-        $styleNodes = $this->getXPath()->query('//style');
-        if ($styleNodes === false) {
+        $style_nodes = $this->get_x_path()->query('//style');
+        if ($style_nodes === false) {
             return '';
         }
-
         $css = '';
-        foreach ($styleNodes as $styleNode) {
-            \assert($styleNode instanceof \DOMNode);
-            if (\is_string($styleNode->nodeValue)) {
-                $css .= "\n\n" . $styleNode->nodeValue;
+        foreach ($style_nodes as $style_node) {
+            \assert($style_node instanceof \Dom_Node);
+            if (\is_string($style_node->node_value)) {
+                $css .= "\n\n" . $style_node->node_value;
             }
-            $parentNode = $styleNode->parentNode;
-            if ($parentNode instanceof \DOMNode) {
-                $parentNode->removeChild($styleNode);
+            $parent_node = $style_node->parent_node;
+            if ($parent_node instanceof \Dom_Node) {
+                $parent_node->remove_child($style_node);
             }
         }
-
         return $css;
     }
-
     /**
      * Find the nodes that are not to be emogrified.
      *
@@ -504,18 +433,16 @@ final class CssInliner extends AbstractHtmlProcessor
      * @throws \RuntimeException in debug mode, if `CssSelectorConverter::toXPath` returns an invalid XPath expression
      * @throws \UnexpectedValueException if the selector query result includes a node which is not a `DOMElement`
      */
-    private function getNodesToExclude(): array
+    private function get_nodes_to_exclude(): array
     {
-        $excludedNodes = [];
-        foreach (\array_keys($this->excludedSelectors) as $selectorToExclude) {
-            foreach ($this->querySelectorAll($selectorToExclude) as $node) {
-                $excludedNodes[] = $this->ensureNodeIsElement($node);
+        $excluded_nodes = [];
+        foreach (\array_keys($this->excluded_selectors) as $selector_to_exclude) {
+            foreach ($this->query_selector_all($selector_to_exclude) as $node) {
+                $excluded_nodes[] = $this->ensure_node_is_element($node);
             }
         }
-
-        return $excludedNodes;
+        return $excluded_nodes;
     }
-
     /**
      * @param array{alwaysThrowParseException?: bool} $options
      *        This is an array of option values to control behaviour:
@@ -527,61 +454,52 @@ final class CssInliner extends AbstractHtmlProcessor
      *         in debug mode (or with `QSA_ALWAYS_THROW_PARSE_EXCEPTION` option), if an invalid selector is encountered
      * @throws \RuntimeException in debug mode, if `CssSelectorConverter::toXPath` returns an invalid XPath expression
      */
-    private function querySelectorAll(string $selectors, array $options = []): \DOMNodeList
+    private function query_selector_all(string $selectors, array $options = []): \Dom_Node_List
     {
         try {
-            $result = $this->getXPath()->query($this->getCssSelectorConverter()->toXPath($selectors));
-
+            $result = $this->get_x_path()->query($this->get_css_selector_converter()->to_x_path($selectors));
             if ($result === false) {
                 throw new \RuntimeException('query failed with selector \'' . $selectors . '\'', 1726533051);
             }
             /** @var \DOMNodeList<\DOMElement> $result */
-
             return $result;
-        } catch (ParseException $exception) {
-            $alwaysThrowParseException = $options[self::QSA_ALWAYS_THROW_PARSE_EXCEPTION] ?? false;
-            if ($this->debug || $alwaysThrowParseException) {
+        } catch (Parse_Exception $exception) {
+            $always_throw_parse_exception = $options[self::QSA_ALWAYS_THROW_PARSE_EXCEPTION] ?? false;
+            if ($this->debug || $always_throw_parse_exception) {
                 throw $exception;
             }
-            $list = new \DOMNodeList();
+            $list = new \Dom_Node_List();
             /** @var \DOMNodeList<\DOMElement> $list */
             return $list;
         } catch (\RuntimeException $exception) {
-            if (
-                $this->debug
-            ) {
+            if ($this->debug) {
                 throw $exception;
             }
             // `RuntimeException` indicates a bug in CssSelector so pass the message to the error handler.
-            \trigger_error($exception->getMessage());
-            $list = new \DOMNodeList();
+            \trigger_error($exception->get_message());
+            $list = new \Dom_Node_List();
             /** @var \DOMNodeList<\DOMElement> $list */
             return $list;
         }
     }
-
     /**
      * @throws \UnexpectedValueException if `$node` is not a `DOMElement`
      */
-    private function ensureNodeIsElement(\DOMNode $node): \DOMElement
+    private function ensure_node_is_element(\Dom_Node $node): \Dom_Element
     {
-        if (!($node instanceof \DOMElement)) {
-            $path = $node->getNodePath() ?? '$node';
+        if (!$node instanceof \Dom_Element) {
+            $path = $node->get_node_path() ?? '$node';
             throw new \UnexpectedValueException($path . ' is not a DOMElement.', 1617975914);
         }
-
         return $node;
     }
-
-    private function getCssSelectorConverter(): CssSelectorConverter
+    private function get_css_selector_converter(): Css_Selector_Converter
     {
-        if (!$this->cssSelectorConverter instanceof CssSelectorConverter) {
-            $this->cssSelectorConverter = new CssSelectorConverter();
+        if (!$this->css_selector_converter instanceof Css_Selector_Converter) {
+            $this->css_selector_converter = new Css_Selector_Converter();
         }
-
-        return $this->cssSelectorConverter;
+        return $this->css_selector_converter;
     }
-
     /**
      * Collates the individual rules from a `CssDocument` object.
      *
@@ -604,68 +522,57 @@ final class CssInliner extends AbstractHtmlProcessor
      *           e.g., `color: red; height: 4px;`);
      *         - "line" (the line number, e.g. 42).
      */
-    private function collateCssRules(CssDocument $parsedCss): array
+    private function collate_css_rules(Css_Document $parsed_css): array
     {
-        $matches = $parsedCss->getStyleRulesData(\array_keys($this->allowedMediaTypes));
-
-        $cssRules = [
-            'inlinable' => [],
-            'uninlinable' => [],
-        ];
-        foreach ($matches as $key => $cssRule) {
-            if (!$cssRule->hasAtLeastOneDeclaration()) {
+        $matches = $parsed_css->get_style_rules_data(\array_keys($this->allowed_media_types));
+        $css_rules = ['inlinable' => [], 'uninlinable' => []];
+        foreach ($matches as $key => $css_rule) {
+            if (!$css_rule->has_at_least_one_declaration()) {
                 continue;
             }
-
-            $mediaQuery = $cssRule->getContainingAtRule();
-            $declarationsBlock = $cssRule->getDeclarationsAsText();
-            $selectors = $cssRule->getSelectors();
-
+            $media_query = $css_rule->get_containing_at_rule();
+            $declarations_block = $css_rule->get_declarations_as_text();
+            $selectors = $css_rule->get_selectors();
             // Maybe exclude CSS selectors
-            if (\count($this->excludedCssSelectors) > 0) {
+            if (\count($this->excluded_css_selectors) > 0) {
                 // Normalize spaces, line breaks & tabs
-                $selectorsNormalized = \array_map(static function (string $selector): string {
-                    return preg_replace('@\\s++@u', ' ', $selector);
+                $selectors_normalized = \array_map(static function (string $selector): string {
+                    return preg_replace('@\s++@u', ' ', $selector);
                 }, $selectors);
                 /** @var array<non-empty-string> $selectors */
-                $selectors = \array_filter($selectorsNormalized, function (string $selector): bool {
-                    return !isset($this->excludedCssSelectors[$selector]);
+                $selectors = \array_filter($selectors_normalized, function (string $selector): bool {
+                    return !isset($this->excluded_css_selectors[$selector]);
                 });
             }
-
             foreach ($selectors as $selector) {
                 // don't process pseudo-elements and behavioral (dynamic) pseudo-classes;
                 // only allow structural pseudo-classes
-                $hasPseudoElement = \strpos($selector, '::') !== false;
-                $hasUnmatchablePseudo = $hasPseudoElement || $this->hasUnsupportedPseudoClass($selector);
-
-                $parsedCssRule = [
-                    'media' => $mediaQuery,
+                $has_pseudo_element = \strpos($selector, '::') !== false;
+                $has_unmatchable_pseudo = $has_pseudo_element || $this->has_unsupported_pseudo_class($selector);
+                $parsed_css_rule = [
+                    'media' => $media_query,
                     'selector' => $selector,
-                    'hasUnmatchablePseudo' => $hasUnmatchablePseudo,
-                    'declarationsBlock' => $declarationsBlock,
+                    'hasUnmatchablePseudo' => $has_unmatchable_pseudo,
+                    'declarationsBlock' => $declarations_block,
                     // keep track of where it appears in the file, since order is important
                     'line' => $key,
                 ];
-                $ruleType = (!$cssRule->hasContainingAtRule() && !$hasUnmatchablePseudo) ? 'inlinable' : 'uninlinable';
-                $cssRules[$ruleType][] = $parsedCssRule;
+                $rule_type = !$css_rule->has_containing_at_rule() && !$has_unmatchable_pseudo ? 'inlinable' : 'uninlinable';
+                $css_rules[$rule_type][] = $parsed_css_rule;
             }
         }
-
         \usort(
-            $cssRules['inlinable'],
+            $css_rules['inlinable'],
             /**
              * @param array{selector: non-empty-string, line: int<0, max>} $first
              * @param array{selector: non-empty-string, line: int<0, max>} $second
              */
             function (array $first, array $second): int {
-                return $this->sortBySelectorPrecedence($first, $second);
+                return $this->sort_by_selector_precedence($first, $second);
             }
         );
-
-        return $cssRules;
+        return $css_rules;
     }
-
     /**
      * Tests if a selector contains a pseudo-class which would mean it cannot be converted to an XPath expression for
      * inlining CSS declarations.
@@ -673,26 +580,22 @@ final class CssInliner extends AbstractHtmlProcessor
      * Any pseudo class that does not match {@see PSEUDO_CLASS_MATCHER} cannot be converted.  Additionally, `...of-type`
      * pseudo-classes cannot be converted if they are not associated with a type selector.
      */
-    private function hasUnsupportedPseudoClass(string $selector): bool
+    private function has_unsupported_pseudo_class(string $selector): bool
     {
-        if (preg_match('/:(?!' . self::PSEUDO_CLASS_MATCHER . ')[\\w\\-]/i', $selector) !== 0) {
+        if (preg_match('/:(?!' . self::PSEUDO_CLASS_MATCHER . ')[\w\-]/i', $selector) !== 0) {
             return true;
         }
-
         if (preg_match('/:(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')/i', $selector) === 0) {
             return false;
         }
-
-        foreach (preg_split('/' . self::COMBINATOR_MATCHER . '/', $selector) as $selectorPart) {
-            \assert(\is_string($selectorPart));
-            if ($this->selectorPartHasUnsupportedOfTypePseudoClass($selectorPart)) {
+        foreach (preg_split('/' . self::COMBINATOR_MATCHER . '/', $selector) as $selector_part) {
+            \assert(\is_string($selector_part));
+            if ($this->selector_part_has_unsupported_of_type_pseudo_class($selector_part)) {
                 return true;
             }
         }
-
         return false;
     }
-
     /**
      * Tests if part of a selector contains an `...of-type` pseudo-class such that it cannot be converted to an XPath
      * expression.
@@ -701,58 +604,51 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @return bool `true` if the selector part does not have a type but does have an `...of-type` pseudo-class
      */
-    private function selectorPartHasUnsupportedOfTypePseudoClass(string $selectorPart): bool
+    private function selector_part_has_unsupported_of_type_pseudo_class(string $selector_part): bool
     {
-        if (preg_match('/^[\\w\\-]/', $selectorPart) !== 0) {
+        if (preg_match('/^[\w\-]/', $selector_part) !== 0) {
             return false;
         }
-
-        return preg_match('/:(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')/i', $selectorPart) !== 0;
+        return preg_match('/:(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')/i', $selector_part) !== 0;
     }
-
     /**
      * @param array{selector: non-empty-string, line: int<0, max>} $first
      * @param array{selector: non-empty-string, line: int<0, max>} $second
      */
-    private function sortBySelectorPrecedence(array $first, array $second): int
+    private function sort_by_selector_precedence(array $first, array $second): int
     {
-        $precedenceOfFirst = $this->getCssSelectorPrecedence($first['selector']);
-        $precedenceOfSecond = $this->getCssSelectorPrecedence($second['selector']);
-
+        $precedence_of_first = $this->get_css_selector_precedence($first['selector']);
+        $precedence_of_second = $this->get_css_selector_precedence($second['selector']);
         // We want these sorted in ascending order so selectors with lesser precedence get processed first and
         // selectors with greater precedence get sorted last.
-        $precedenceForEquals = $first['line'] < $second['line'] ? -1 : 1;
-        $precedenceForNotEquals = $precedenceOfFirst < $precedenceOfSecond ? -1 : 1;
-        return ($precedenceOfFirst === $precedenceOfSecond) ? $precedenceForEquals : $precedenceForNotEquals;
+        $precedence_for_equals = $first['line'] < $second['line'] ? -1 : 1;
+        $precedence_for_not_equals = $precedence_of_first < $precedence_of_second ? -1 : 1;
+        return $precedence_of_first === $precedence_of_second ? $precedence_for_equals : $precedence_for_not_equals;
     }
-
     /**
      * @param non-empty-string $selector
      *
      * @return int<0, max>
      */
-    private function getCssSelectorPrecedence(string $selector): int
+    private function get_css_selector_precedence(string $selector): int
     {
-        $selectorKey = $selector;
-        if (isset($this->caches[self::CACHE_KEY_SELECTOR][$selectorKey])) {
-            return $this->caches[self::CACHE_KEY_SELECTOR][$selectorKey];
+        $selector_key = $selector;
+        if (isset($this->caches[self::CACHE_KEY_SELECTOR][$selector_key])) {
+            return $this->caches[self::CACHE_KEY_SELECTOR][$selector_key];
         }
-
         $precedence = 0;
-        foreach ($this->selectorPrecedenceMatchers as $matcher => $value) {
+        foreach ($this->selector_precedence_matchers as $matcher => $value) {
             if (\trim($selector) === '') {
                 break;
             }
             $count = 0;
-            $selector = preg_replace('/' . $matcher . '\\w+/', '', $selector, -1, $count);
-            $precedence += ($value * $count);
+            $selector = preg_replace('/' . $matcher . '\w+/', '', $selector, -1, $count);
+            $precedence += $value * $count;
             \assert($precedence >= 0);
         }
-        $this->caches[self::CACHE_KEY_SELECTOR][$selectorKey] = $precedence;
-
+        $this->caches[self::CACHE_KEY_SELECTOR][$selector_key] = $precedence;
         return $precedence;
     }
-
     /**
      * Copies `$cssRule` into the style attribute of `$node`.
      *
@@ -766,27 +662,22 @@ final class CssInliner extends AbstractHtmlProcessor
      *            line: int<0, max>
      *        } $cssRule
      */
-    private function copyInlinableCssToStyleAttribute(\DOMElement $node, array $cssRule): void
+    private function copy_inlinable_css_to_style_attribute(\Dom_Element $node, array $css_rule): void
     {
-        $declarationsBlock = $cssRule['declarationsBlock'];
-        $newStyleDeclarations = DeclarationBlockParser::parse($declarationsBlock);
-        if ($newStyleDeclarations === []) {
+        $declarations_block = $css_rule['declarationsBlock'];
+        $new_style_declarations = Declaration_Block_Parser::parse($declarations_block);
+        if ($new_style_declarations === []) {
             return;
         }
-
         // if it has a style attribute, get it, process it, and append (overwrite) new stuff
-        if ($node->hasAttribute('style')) {
+        if ($node->has_attribute('style')) {
             // break it up into an associative array
-            $oldStyleDeclarations = DeclarationBlockParser::parse($node->getAttribute('style'));
+            $old_style_declarations = Declaration_Block_Parser::parse($node->get_attribute('style'));
         } else {
-            $oldStyleDeclarations = [];
+            $old_style_declarations = [];
         }
-        $node->setAttribute(
-            'style',
-            $this->generateStyleStringFromDeclarationsArrays($oldStyleDeclarations, $newStyleDeclarations)
-        );
+        $node->set_attribute('style', $this->generate_style_string_from_declarations_arrays($old_style_declarations, $new_style_declarations));
     }
-
     /**
      * This method merges old or existing name/value array with new name/value array
      * and then generates a string of the combined style suitable for placing inline.
@@ -798,89 +689,70 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws \UnexpectedValueException if an empty property name is encountered (which should not happen)
      */
-    private function generateStyleStringFromDeclarationsArrays(array $oldStyles, array $newStyles): string
+    private function generate_style_string_from_declarations_arrays(array $old_styles, array $new_styles): string
     {
-        $cacheKey = \serialize([$oldStyles, $newStyles]);
-        \assert($cacheKey !== '');
-        if (isset($this->caches[self::CACHE_KEY_COMBINED_STYLES][$cacheKey])) {
-            return $this->caches[self::CACHE_KEY_COMBINED_STYLES][$cacheKey];
+        $cache_key = \serialize([$old_styles, $new_styles]);
+        \assert($cache_key !== '');
+        if (isset($this->caches[self::CACHE_KEY_COMBINED_STYLES][$cache_key])) {
+            return $this->caches[self::CACHE_KEY_COMBINED_STYLES][$cache_key];
         }
-
         // Unset the overridden styles to preserve order, important if shorthand and individual properties are mixed
-        foreach ($oldStyles as $attributeName => $attributeValue) {
-            if (!isset($newStyles[$attributeName])) {
+        foreach ($old_styles as $attribute_name => $attribute_value) {
+            if (!isset($new_styles[$attribute_name])) {
                 continue;
             }
-
-            $newAttributeValue = $newStyles[$attributeName];
-            if (
-                $this->attributeValueIsImportant($attributeValue)
-                && !$this->attributeValueIsImportant($newAttributeValue)
-            ) {
-                unset($newStyles[$attributeName]);
+            $new_attribute_value = $new_styles[$attribute_name];
+            if ($this->attribute_value_is_important($attribute_value) && !$this->attribute_value_is_important($new_attribute_value)) {
+                unset($new_styles[$attribute_name]);
             } else {
-                unset($oldStyles[$attributeName]);
+                unset($old_styles[$attribute_name]);
             }
         }
-
-        $combinedStyles = \array_merge($oldStyles, $newStyles);
-
+        $combined_styles = \array_merge($old_styles, $new_styles);
         $style = '';
-        foreach ($combinedStyles as $attributeName => $attributeValue) {
-            $trimmedAttributeName = \trim($attributeName);
-            if ($trimmedAttributeName === '') {
+        foreach ($combined_styles as $attribute_name => $attribute_value) {
+            $trimmed_attribute_name = \trim($attribute_name);
+            if ($trimmed_attribute_name === '') {
                 throw new \UnexpectedValueException('An empty property name was encountered.', 1727046078);
             }
-            $propertyName = DeclarationBlockParser::normalizePropertyName($trimmedAttributeName);
-            $propertyValue = \trim($attributeValue);
-            $style .= $propertyName . ': ' . $propertyValue . '; ';
+            $property_name = Declaration_Block_Parser::normalize_property_name($trimmed_attribute_name);
+            $property_value = \trim($attribute_value);
+            $style .= $property_name . ': ' . $property_value . '; ';
         }
-        $trimmedStyle = \rtrim($style);
-
-        $this->caches[self::CACHE_KEY_COMBINED_STYLES][$cacheKey] = $trimmedStyle;
-
-        return $trimmedStyle;
+        $trimmed_style = \rtrim($style);
+        $this->caches[self::CACHE_KEY_COMBINED_STYLES][$cache_key] = $trimmed_style;
+        return $trimmed_style;
     }
-
     /**
      * Checks whether `$attributeValue` is marked as `!important`.
      */
-    private function attributeValueIsImportant(string $attributeValue): bool
+    private function attribute_value_is_important(string $attribute_value): bool
     {
-        return preg_match('/!\\s*+important$/i', $attributeValue) !== 0;
+        return preg_match('/!\s*+important$/i', $attribute_value) !== 0;
     }
-
     /**
      * Merges styles from styles attributes and style nodes and applies them to the attribute nodes
      */
-    private function fillStyleAttributesWithMergedStyles(): void
+    private function fill_style_attributes_with_merged_styles(): void
     {
-        foreach ($this->styleAttributesForNodes as $nodePath => $styleAttributesForNode) {
-            $node = $this->visitedNodes[$nodePath];
-            $currentStyleAttributes = DeclarationBlockParser::parse($node->getAttribute('style'));
-            $node->setAttribute(
-                'style',
-                $this->generateStyleStringFromDeclarationsArrays(
-                    $currentStyleAttributes,
-                    $styleAttributesForNode
-                )
-            );
+        foreach ($this->style_attributes_for_nodes as $node_path => $style_attributes_for_node) {
+            $node = $this->visited_nodes[$node_path];
+            $current_style_attributes = Declaration_Block_Parser::parse($node->get_attribute('style'));
+            $node->set_attribute('style', $this->generate_style_string_from_declarations_arrays($current_style_attributes, $style_attributes_for_node));
         }
     }
-
     /**
      * Searches for all nodes with a style attribute and removes the "!important" annotations out of
      * the inline style declarations, eventually by rearranging declarations.
      *
      * @throws \RuntimeException
      */
-    private function removeImportantAnnotationFromAllInlineStyles(): void
+    private function remove_important_annotation_from_all_inline_styles(): void
     {
-        foreach ($this->getAllNodesWithStyleAttribute() as $node) {
-            $this->removeImportantAnnotationFromNodeInlineStyle($node);
+        foreach ($this->get_all_nodes_with_style_attribute() as $node) {
+            $this->remove_important_annotation_from_node_inline_style($node);
         }
     }
-
     /**
      * Removes the "!important" annotations out of the inline style declarations,
      * eventually by rearranging declarations.
@@ -891,39 +763,34 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws \RuntimeException
      */
-    private function removeImportantAnnotationFromNodeInlineStyle(\DOMElement $node): void
+    private function remove_important_annotation_from_node_inline_style(\Dom_Element $node): void
     {
-        $style = $node->getAttribute('style');
-        $inlineStyleDeclarations = DeclarationBlockParser::parse((bool) $style ? $style : '');
+        $style = $node->get_attribute('style');
+        $inline_style_declarations = Declaration_Block_Parser::parse((bool) $style ? $style : '');
         /** @var array<string, string> $regularStyleDeclarations */
-        $regularStyleDeclarations = [];
+        $regular_style_declarations = [];
         /** @var array<string, string> $importantStyleDeclarations */
-        $importantStyleDeclarations = [];
-        foreach ($inlineStyleDeclarations as $property => $value) {
-            if ($this->attributeValueIsImportant($value)) {
-                $declaration = preg_replace('/\\s*+!\\s*+important$/i', '', $value);
-                $importantStyleDeclarations[$property] = $declaration;
+        $important_style_declarations = [];
+        foreach ($inline_style_declarations as $property => $value) {
+            if ($this->attribute_value_is_important($value)) {
+                $declaration = preg_replace('/\s*+!\s*+important$/i', '', $value);
+                $important_style_declarations[$property] = $declaration;
             } else {
-                $regularStyleDeclarations[$property] = $value;
+                $regular_style_declarations[$property] = $value;
             }
         }
-        $inlineStyleDeclarationsInNewOrder = \array_merge($regularStyleDeclarations, $importantStyleDeclarations);
-        $node->setAttribute(
-            'style',
-            $this->generateStyleStringFromSingleDeclarationsArray($inlineStyleDeclarationsInNewOrder)
-        );
+        $inline_style_declarations_in_new_order = \array_merge($regular_style_declarations, $important_style_declarations);
+        $node->set_attribute('style', $this->generate_style_string_from_single_declarations_array($inline_style_declarations_in_new_order));
     }
-
     /**
      * Generates a CSS style string suitable to be used inline from the $styleDeclarations property => value array.
      *
      * @param array<string, string> $styleDeclarations
      */
-    private function generateStyleStringFromSingleDeclarationsArray(array $styleDeclarations): string
+    private function generate_style_string_from_single_declarations_array(array $style_declarations): string
     {
-        return $this->generateStyleStringFromDeclarationsArrays([], $styleDeclarations);
+        return $this->generate_style_string_from_declarations_arrays([], $style_declarations);
     }
-
     /**
      * Determines which of `$cssRules` actually apply to `$this->domDocument`, and sets them in
      * `$this->matchingUninlinableCssRules`.
@@ -937,16 +804,12 @@ final class CssInliner extends AbstractHtmlProcessor
      *        }> $cssRules
      *        the "uninlinable" array of CSS rules returned by `collateCssRules`
      */
-    private function determineMatchingUninlinableCssRules(array $cssRules): void
+    private function determine_matching_uninlinable_css_rules(array $css_rules): void
     {
-        $this->matchingUninlinableCssRules = \array_filter(
-            $cssRules,
-            function (array $cssRule): bool {
-                return $this->existsMatchForSelectorInCssRule($cssRule);
-            }
-        );
+        $this->matching_uninlinable_css_rules = \array_filter($css_rules, function (array $css_rule): bool {
+            return $this->exists_match_for_selector_in_css_rule($css_rule);
+        });
     }
-
     /**
      * Checks whether there is at least one matching element for the CSS selector contained in the `selector` element
      * of the provided CSS rule.
@@ -964,15 +827,14 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws ParseException
      */
-    private function existsMatchForSelectorInCssRule(array $cssRule): bool
+    private function exists_match_for_selector_in_css_rule(array $css_rule): bool
     {
-        $selector = $cssRule['selector'];
-        if ($cssRule['hasUnmatchablePseudo']) {
-            $selector = $this->removeUnmatchablePseudoComponents($selector);
+        $selector = $css_rule['selector'];
+        if ($css_rule['hasUnmatchablePseudo']) {
+            $selector = $this->remove_unmatchable_pseudo_components($selector);
         }
-        return $this->existsMatchForCssSelector($selector);
+        return $this->exists_match_for_css_selector($selector);
     }
-
     /**
      * Checks whether there is at least one matching element for $cssSelector.
      * When not in debug mode, it returns true also for invalid selectors (because they may be valid,
@@ -981,21 +843,18 @@ final class CssInliner extends AbstractHtmlProcessor
      * @throws ParseException in debug mode, if an invalid selector is encountered
      * @throws \RuntimeException in debug mode, if `CssSelectorConverter::toXPath` returns an invalid XPath expression
      */
-    private function existsMatchForCssSelector(string $cssSelector): bool
+    private function exists_match_for_css_selector(string $css_selector): bool
     {
         try {
-            $nodesMatchingSelector
-                = $this->querySelectorAll($cssSelector, [self::QSA_ALWAYS_THROW_PARSE_EXCEPTION => true]);
-        } catch (ParseException $e) {
+            $nodes_matching_selector = $this->query_selector_all($css_selector, [self::QSA_ALWAYS_THROW_PARSE_EXCEPTION => true]);
+        } catch (Parse_Exception $e) {
             if ($this->debug) {
                 throw $e;
             }
             return true;
         }
-
-        return $nodesMatchingSelector->length !== 0;
+        return $nodes_matching_selector->length !== 0;
     }
-
     /**
      * Removes pseudo-elements and dynamic pseudo-classes from a CSS selector, replacing them with "*" if necessary.
      * If such a pseudo-component is within the argument of `:not`, the entire `:not` component is removed or replaced.
@@ -1004,49 +863,30 @@ final class CssInliner extends AbstractHtmlProcessor
      *         selector which will match the relevant DOM elements if the pseudo-classes are assumed to apply, or in the
      *         case of pseudo-elements will match their originating element
      */
-    private function removeUnmatchablePseudoComponents(string $selector): string
+    private function remove_unmatchable_pseudo_components(string $selector): string
     {
         // The regex allows nested brackets via `(?2)`.
         // A space is temporarily prepended because the callback can't determine if the match was at the very start.
-        $pattern = '/([\\s>+~]?+):not(\\([^()]*+(?:(?2)[^()]*+)*+\\))/i';
-        $callback = \Closure::fromCallable([$this, 'replaceUnmatchableNotComponent']);
-        if (\function_exists('Safe\\preg_replace_callback')) {
-            $untrimmedSelectorWithoutNots = preg_replace_callback($pattern, $callback, ' ' . $selector);
+        $pattern = '/([\s>+~]?+):not(\([^()]*+(?:(?2)[^()]*+)*+\))/i';
+        $callback = \Closure::from_callable([$this, 'replaceUnmatchableNotComponent']);
+        if (\function_exists('Safe\preg_replace_callback')) {
+            $untrimmed_selector_without_nots = preg_replace_callback($pattern, $callback, ' ' . $selector);
         } else {
             // @phpstan-ignore-next-line The safe version is only available in "thecodingmachine/safe" for PHP >= 8.1.
-            $untrimmedSelectorWithoutNots = \preg_replace_callback($pattern, $callback, ' ' . $selector);
-            \assert(\is_string($untrimmedSelectorWithoutNots));
+            $untrimmed_selector_without_nots = \preg_replace_callback($pattern, $callback, ' ' . $selector);
+            \assert(\is_string($untrimmed_selector_without_nots));
         }
-        $selectorWithoutNots = \ltrim($untrimmedSelectorWithoutNots);
-
-        $selectorWithoutUnmatchablePseudoComponents = $this->removeSelectorComponents(
-            ':(?!' . self::PSEUDO_CLASS_MATCHER . '):?+[\\w\\-]++(?:\\([^\\)]*+\\))?+',
-            $selectorWithoutNots
-        );
-
-        if (preg_match(
-            '/:(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')/i',
-            $selectorWithoutUnmatchablePseudoComponents
-        ) === 0) {
-            return $selectorWithoutUnmatchablePseudoComponents;
+        $selector_without_nots = \ltrim($untrimmed_selector_without_nots);
+        $selector_without_unmatchable_pseudo_components = $this->remove_selector_components(':(?!' . self::PSEUDO_CLASS_MATCHER . '):?+[\w\-]++(?:\([^\)]*+\))?+', $selector_without_nots);
+        if (preg_match('/:(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')/i', $selector_without_unmatchable_pseudo_components) === 0) {
+            return $selector_without_unmatchable_pseudo_components;
         }
-
-        $selectorParts = preg_split(
-            '/(' . self::COMBINATOR_MATCHER . ')/',
-            $selectorWithoutUnmatchablePseudoComponents,
-            -1,
-            PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY
-        );
+        $selector_parts = preg_split('/(' . self::COMBINATOR_MATCHER . ')/', $selector_without_unmatchable_pseudo_components, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
         /** @var list<string> $selectorParts */
-
-        return \implode('', \array_map(
-            function (string $selectorPart): string {
-                return $this->removeUnsupportedOfTypePseudoClasses($selectorPart);
-            },
-            $selectorParts
-        ));
+        return \implode('', \array_map(function (string $selector_part): string {
+            return $this->remove_unsupported_of_type_pseudo_classes($selector_part);
+        }, $selector_parts));
     }
-
     /**
      * Helps `removeUnmatchablePseudoComponents()` replace or remove a selector `:not(...)` component if its argument
      * contains pseudo-elements or dynamic pseudo-classes.
@@ -1061,19 +901,17 @@ final class CssInliner extends AbstractHtmlProcessor
      *         the full match if there were no unmatchable pseudo components within; otherwise, any preceding combinator
      *         followed by "*", or an empty string if there was no preceding combinator
      */
-    private function replaceUnmatchableNotComponent(array $matches): string
+    private function replace_unmatchable_not_component(array $matches): string
     {
-        [$notComponentWithAnyPrecedingCombinator, $anyPrecedingCombinator, $notArgumentInBrackets] = $matches;
-        \assert(\is_string($notComponentWithAnyPrecedingCombinator));
-        \assert(\is_string($anyPrecedingCombinator));
-        \assert(\is_string($notArgumentInBrackets));
-
-        if ($this->hasUnsupportedPseudoClass($notArgumentInBrackets)) {
-            return $anyPrecedingCombinator !== '' ? $anyPrecedingCombinator . '*' : '';
+        [$not_component_with_any_preceding_combinator, $any_preceding_combinator, $not_argument_in_brackets] = $matches;
+        \assert(\is_string($not_component_with_any_preceding_combinator));
+        \assert(\is_string($any_preceding_combinator));
+        \assert(\is_string($not_argument_in_brackets));
+        if ($this->has_unsupported_pseudo_class($not_argument_in_brackets)) {
+            return $any_preceding_combinator !== '' ? $any_preceding_combinator . '*' : '';
         }
-        return $notComponentWithAnyPrecedingCombinator;
+        return $not_component_with_any_preceding_combinator;
     }
-
     /**
      * Removes components from a CSS selector, replacing them with "*" if necessary.
      *
@@ -1083,15 +921,10 @@ final class CssInliner extends AbstractHtmlProcessor
      *         selector which will match the relevant DOM elements if the removed components are assumed to apply (or in
      *         the case of pseudo-elements will match their originating element)
      */
-    private function removeSelectorComponents(string $matcher, string $selector): string
+    private function remove_selector_components(string $matcher, string $selector): string
     {
-        return preg_replace(
-            ['/([\\s>+~]|^)' . $matcher . '/i', '/' . $matcher . '/i'],
-            ['$1*', ''],
-            $selector
-        );
+        return preg_replace(['/([\s>+~]|^)' . $matcher . '/i', '/' . $matcher . '/i'], ['$1*', ''], $selector);
     }
-
     /**
      * Removes any `...-of-type` pseudo-classes from part of a CSS selector, if it does not have a type, replacing them
      * with "*" if necessary.
@@ -1101,18 +934,13 @@ final class CssInliner extends AbstractHtmlProcessor
      * @return string
      *         selector part which will match the relevant DOM elements if the pseudo-classes are assumed to apply
      */
-    private function removeUnsupportedOfTypePseudoClasses(string $selectorPart): string
+    private function remove_unsupported_of_type_pseudo_classes(string $selector_part): string
     {
-        if (!$this->selectorPartHasUnsupportedOfTypePseudoClass($selectorPart)) {
-            return $selectorPart;
+        if (!$this->selector_part_has_unsupported_of_type_pseudo_class($selector_part)) {
+            return $selector_part;
         }
-
-        return $this->removeSelectorComponents(
-            ':(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')(?:\\([^\\)]*+\\))?+',
-            $selectorPart
-        );
+        return $this->remove_selector_components(':(?:' . self::OF_TYPE_PSEUDO_CLASS_MATCHER . ')(?:\([^\)]*+\))?+', $selector_part);
     }
-
     /**
      * Applies `$this->matchingUninlinableCssRules` to `$this->domDocument` by placing them as CSS in a `<style>`
      * element.
@@ -1127,25 +955,22 @@ final class CssInliner extends AbstractHtmlProcessor
      *        Note that `CssInliner` processes `@media` rules so that they can be ordered correctly with respect to
      *        other uninlinable rules; these will not be duplicated from `$parsedCss`.
      */
-    private function copyUninlinableCssToStyleNode(CssDocument $parsedCss): void
+    private function copy_uninlinable_css_to_style_node(Css_Document $parsed_css): void
     {
-        $css = $parsedCss->renderNonConditionalAtRules();
-
+        $css = $parsed_css->render_non_conditional_at_rules();
         // avoid including unneeded class dependency if there are no rules
-        if ($this->getMatchingUninlinableCssRules() !== []) {
-            $cssConcatenator = new CssConcatenator();
-            foreach ($this->getMatchingUninlinableCssRules() as $cssRule) {
-                $cssConcatenator->append([$cssRule['selector']], $cssRule['declarationsBlock'], $cssRule['media']);
+        if ($this->get_matching_uninlinable_css_rules() !== []) {
+            $css_concatenator = new Css_Concatenator();
+            foreach ($this->get_matching_uninlinable_css_rules() as $css_rule) {
+                $css_concatenator->append([$css_rule['selector']], $css_rule['declarationsBlock'], $css_rule['media']);
             }
-            $css .= $cssConcatenator->getCss();
+            $css .= $css_concatenator->get_css();
         }
-
         // avoid adding empty style element
         if ($css !== '') {
-            $this->addStyleElementToDocument($css);
+            $this->add_style_element_to_document($css);
         }
     }
-
     /**
      * Adds a style element with `$css` to `$this->domDocument`.
      *
@@ -1153,18 +978,16 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @see https://github.com/MyIntervals/emogrifier/issues/103
      */
-    protected function addStyleElementToDocument(string $css): void
+    protected function add_style_element_to_document(string $css): void
     {
-        $domDocument = $this->getDomDocument();
-        $styleElement = $domDocument->createElement('style', $css);
-        $styleAttribute = $domDocument->createAttribute('type');
-        $styleAttribute->value = 'text/css';
-        $styleElement->appendChild($styleAttribute);
-
-        $headElement = $this->getHeadElement();
-        $headElement->appendChild($styleElement);
+        $dom_document = $this->get_dom_document();
+        $style_element = $dom_document->create_element('style', $css);
+        $style_attribute = $dom_document->create_attribute('type');
+        $style_attribute->value = 'text/css';
+        $style_element->append_child($style_attribute);
+        $head_element = $this->get_head_element();
+        $head_element->append_child($style_element);
     }
-
     /**
      * Returns the `HEAD` element.
      *
@@ -1172,13 +995,12 @@ final class CssInliner extends AbstractHtmlProcessor
      *
      * @throws \UnexpectedValueException
      */
-    private function getHeadElement(): \DOMElement
+    private function get_head_element(): \Dom_Element
     {
-        $node = $this->getDomDocument()->getElementsByTagName('head')->item(0);
-        if (!$node instanceof \DOMElement) {
+        $node = $this->get_dom_document()->get_elements_by_tag_name('head')->item(0);
+        if (!$node instanceof \Dom_Element) {
             throw new \UnexpectedValueException('There is no HEAD element. This should never happen.', 1617923227);
         }
-
         return $node;
     }
 }

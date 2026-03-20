@@ -1,7 +1,6 @@
 <?php
 
-declare(strict_types=1);
-
+declare (strict_types=1);
 namespace Pelago\Emogrifier\Css;
 
 /**
@@ -10,7 +9,7 @@ namespace Pelago\Emogrifier\Css;
  *
  * @internal
  */
-final class RuleSetList
+final class Rule_Set_List
 {
     /**
      * This holds the full at-rule specification, such as `@media (min-width: 400px)`.
@@ -18,35 +17,29 @@ final class RuleSetList
      *
      * @var string
      */
-    private $atRule;
-
+    private $at_rule;
     /**
      * @var list<RuleSet>
      */
-    private $ruleSets = [];
-
-    public function __construct(string $atRule)
+    private $rule_sets = [];
+    public function __construct(string $at_rule)
     {
-        $this->atRule = $atRule;
+        $this->at_rule = $at_rule;
     }
-
-    public function getAtRule(): string
+    public function get_at_rule(): string
     {
-        return $this->atRule;
+        return $this->at_rule;
     }
-
-    public function appendRuleSet(RuleSet $ruleSet): self
+    public function append_rule_set(Rule_Set $rule_set): self
     {
-        $this->ruleSets[] = $ruleSet;
-
+        $this->rule_sets[] = $rule_set;
         return $this;
     }
-
     /**
      * @return list<RuleSet>
      */
-    public function getRuleSets(): array
+    public function get_rule_sets(): array
     {
-        return $this->ruleSets;
+        return $this->rule_sets;
     }
 }

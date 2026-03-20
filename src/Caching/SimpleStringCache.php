@@ -1,7 +1,6 @@
 <?php
 
-declare(strict_types=1);
-
+declare (strict_types=1);
 namespace Pelago\Emogrifier\Caching;
 
 /**
@@ -20,13 +19,12 @@ namespace Pelago\Emogrifier\Caching;
  *
  * @internal
  */
-final class SimpleStringCache
+final class Simple_String_Cache
 {
     /**
      * @var array<non-empty-string, string>
      */
     private $values = [];
-
     /**
      * Checks whether there is an entry stored for the given key.
      *
@@ -36,11 +34,9 @@ final class SimpleStringCache
      */
     public function has(string $key): bool
     {
-        $this->assertNotEmptyKey($key);
-
+        $this->assert_not_empty_key($key);
         return isset($this->values[$key]);
     }
-
     /**
      * Returns the entry stored for the given key, and throws an exception if the value does not exist
      * (which helps keep the return type simple).
@@ -54,10 +50,8 @@ final class SimpleStringCache
         if (!$this->has($key)) {
             throw new \BadMethodCallException('You can only call `get` with a key for an existing value.', 1625996246);
         }
-
         return $this->values[$key];
     }
-
     /**
      * Sets or overwrites an entry.
      *
@@ -67,15 +61,13 @@ final class SimpleStringCache
      */
     public function set(string $key, string $value): void
     {
-        $this->assertNotEmptyKey($key);
-
+        $this->assert_not_empty_key($key);
         $this->values[$key] = $value;
     }
-
     /**
      * @throws \InvalidArgumentException
      */
-    private function assertNotEmptyKey(string $key): void
+    private function assert_not_empty_key(string $key): void
     {
         if ($key === '') {
             throw new \InvalidArgumentException('Please provide a non-empty key.', 1625995840);

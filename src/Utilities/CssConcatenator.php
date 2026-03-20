@@ -1,12 +1,10 @@
 <?php
 
-declare(strict_types=1);
-
+declare (strict_types=1);
 namespace Pelago\Emogrifier\Utilities;
 
-use Pelago\Emogrifier\Css\RuleSet;
-use Pelago\Emogrifier\Css\RuleSetList;
-
+use Pelago\Emogrifier\Css\Rule_Set;
+use Pelago\Emogrifier\Css\Rule_Set_List;
 /**
  * Facilitates building a CSS string by appending rulesets one at a time,
  * checking whether the enclosing at-rule (if any), selectors, or declaration block
@@ -48,7 +46,7 @@ use Pelago\Emogrifier\Css\RuleSetList;
  *
  * @internal
  */
-final class CssConcatenator
+final class Css_Concatenator
 {
     /**
      * Each ruleset list will have a different at-rule.
@@ -56,8 +54,7 @@ final class CssConcatenator
      *
      * @var list<RuleSetList>
      */
-    private $ruleSetLists = [];
-
+    private $rule_set_lists = [];
     /**
      * Appends a ruleset to the CSS.
      *
@@ -69,68 +66,57 @@ final class CssConcatenator
      *        optional name and parameter of an enclosing at-rule, e.g. `@media screen and (max-width:639px)`;
      *        an empty string if the ruleset is not within an at-rule
      */
-    public function append(array $selectors, string $declarationBlock, string $atRule = ''): void
+    public function append(array $selectors, string $declaration_block, string $at_rule = ''): void
     {
-        $ruleSetList = $this->getOrCreateRuleSetListToAppendTo($atRule);
-        $ruleSets = $ruleSetList->getRuleSets();
-        $lastRuleSet = \end($ruleSets);
-
-        $hasSameDeclarationsAsLastRule = ($lastRuleSet instanceof RuleSet)
-            && $declarationBlock === $lastRuleSet->getDeclarationBlock();
-        if ($hasSameDeclarationsAsLastRule) {
-            $lastRuleSet->addSelectors($selectors);
+        $rule_set_list = $this->get_or_create_rule_set_list_to_append_to($at_rule);
+        $rule_sets = $rule_set_list->get_rule_sets();
+        $last_rule_set = \end($rule_sets);
+        $has_same_declarations_as_last_rule = $last_rule_set instanceof Rule_Set && $declaration_block === $last_rule_set->get_declaration_block();
+        if ($has_same_declarations_as_last_rule) {
+            $last_rule_set->add_selectors($selectors);
         } else {
-            $hasSameSelectorsAsLastRule = ($lastRuleSet instanceof RuleSet)
-                && $lastRuleSet->hasEquivalentSelectors($selectors);
-            if ($hasSameSelectorsAsLastRule) {
-                $lastDeclarationBlockWithoutSemicolon = \rtrim(\rtrim($lastRuleSet->getDeclarationBlock()), ';');
-                $lastRuleSet->setDeclarationBlock($lastDeclarationBlockWithoutSemicolon . ';' . $declarationBlock);
+            $has_same_selectors_as_last_rule = $last_rule_set instanceof Rule_Set && $last_rule_set->has_equivalent_selectors($selectors);
+            if ($has_same_selectors_as_last_rule) {
+                $last_declaration_block_without_semicolon = \rtrim(\rtrim($last_rule_set->get_declaration_block()), ';');
+                $last_rule_set->set_declaration_block($last_declaration_block_without_semicolon . ';' . $declaration_block);
             } else {
-                $ruleSetList->appendRuleSet(new RuleSet($selectors, $declarationBlock));
+                $rule_set_list->append_rule_set(new Rule_Set($selectors, $declaration_block));
             }
         }
     }
-
-    public function getCss(): string
+    public function get_css(): string
     {
-        return \implode('', \array_map([self::class, 'getRuleSetListCss'], $this->ruleSetLists));
+        return \implode('', \array_map([self::class, 'getRuleSetListCss'], $this->rule_set_lists));
     }
-
     /**
      * @param string $atRule
      *        optional name and parameter of an enclosing at-rule, e.g. `@media screen and (max-width:639px)`;
      *        an empty string if the rulesets to be appended are not within an at-rule
      */
-    private function getOrCreateRuleSetListToAppendTo(string $atRule): RuleSetList
+    private function get_or_create_rule_set_list_to_append_to(string $at_rule): Rule_Set_List
     {
-        $lastRuleSetList = \end($this->ruleSetLists);
-        if ($lastRuleSetList instanceof RuleSetList && $atRule === $lastRuleSetList->getAtRule()) {
-            return $lastRuleSetList;
+        $last_rule_set_list = \end($this->rule_set_lists);
+        if ($last_rule_set_list instanceof Rule_Set_List && $at_rule === $last_rule_set_list->get_at_rule()) {
+            return $last_rule_set_list;
         }
-
-        $newRuleSetList = new RuleSetList($atRule);
-        $this->ruleSetLists[] = $newRuleSetList;
-
-        return $newRuleSetList;
+        $new_rule_set_list = new Rule_Set_List($at_rule);
+        $this->rule_set_lists[] = $new_rule_set_list;
+        return $new_rule_set_list;
     }
-
-    private static function getRuleSetListCss(RuleSetList $ruleSetList): string
+    private static function get_rule_set_list_css(Rule_Set_List $rule_set_list): string
     {
-        $ruleSets = $ruleSetList->getRuleSets();
-        $css = \implode('', \array_map([self::class, 'getRuleSetCss'], $ruleSets));
-        $atRule = $ruleSetList->getAtRule();
-        if ($atRule !== '') {
-            return $atRule . '{' . $css . '}';
+        $rule_sets = $rule_set_list->get_rule_sets();
+        $css = \implode('', \array_map([self::class, 'getRuleSetCss'], $rule_sets));
+        $at_rule = $rule_set_list->get_at_rule();
+        if ($at_rule !== '') {
+            return $at_rule . '{' . $css . '}';
         }
-
         return $css;
     }
-
-    private static function getRuleSetCss(RuleSet $ruleSet): string
+    private static function get_rule_set_css(Rule_Set $rule_set): string
     {
-        $selectors = $ruleSet->getSelectors();
-        $declarationBlock = $ruleSet->getDeclarationBlock();
-
-        return \implode(',', $selectors) . '{' . $declarationBlock . '}';
+        $selectors = $rule_set->get_selectors();
+        $declaration_block = $rule_set->get_declaration_block();
+        return \implode(',', $selectors) . '{' . $declaration_block . '}';
     }
 }

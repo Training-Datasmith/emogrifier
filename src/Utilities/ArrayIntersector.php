@@ -1,7 +1,6 @@
 <?php
 
-declare(strict_types=1);
-
+declare (strict_types=1);
 namespace Pelago\Emogrifier\Utilities;
 
 /**
@@ -17,15 +16,14 @@ namespace Pelago\Emogrifier\Utilities;
  *
  * @internal
  */
-final class ArrayIntersector
+final class Array_Intersector
 {
     /**
      * the array with which the object was constructed, with all its keys exchanged with their associated values
      *
      * @var array<array-key, array-key>
      */
-    private $invertedArray;
-
+    private $inverted_array;
     /**
      * Constructs the object with the array that will be reused for many intersection computations.
      *
@@ -33,9 +31,8 @@ final class ArrayIntersector
      */
     public function __construct(array $array)
     {
-        $this->invertedArray = \array_flip($array);
+        $this->inverted_array = \array_flip($array);
     }
-
     /**
      * Computes the intersection of `$array` and the array with which this object was constructed.
      *
@@ -46,12 +43,10 @@ final class ArrayIntersector
      *         with which this object was constructed.  Note that keys are preserved, order is maintained, but
      *         duplicates are removed.
      */
-    public function intersectWith(array $array): array
+    public function intersect_with(array $array): array
     {
-        $invertedArray = \array_flip($array);
-
-        $invertedIntersection = \array_intersect_key($invertedArray, $this->invertedArray);
-
-        return \array_flip($invertedIntersection);
+        $inverted_array = \array_flip($array);
+        $inverted_intersection = \array_intersect_key($inverted_array, $this->inverted_array);
+        return \array_flip($inverted_intersection);
     }
 }
